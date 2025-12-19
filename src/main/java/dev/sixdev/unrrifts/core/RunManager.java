@@ -191,6 +191,8 @@ public void startRun(LobbyGroup group){
         KitDefinition kit = cfg.kits().get(kitId);
         if (kit != null){
             for (ItemStack is : kit.buildItems()){
+                // mark kit items so we can strip them on run end/leave
+                markKitItem(is);
                 p.getInventory().addItem(is);
             }
             p.sendMessage("§5[unrRifts] §7Kit selected: §f"+kit.displayName());
@@ -310,6 +312,62 @@ public void startRun(LobbyGroup group){
         if (t != null) t.cancel();
     }
 
+    /**
+     * Player-initiated leave ("/rift leave").
+     * Removes the player from the current run (if any), strips kit items,
+     * teleports to exit, and DOES NOT record leaderboard.
+     */
+    public void forceLeave(Player p){
+        if (p == null || p.getWorld() == null) return;
+        RunInstance run = runByWorld(p.getWorld());
+        if (run == null) return;
+
+        cancelExfil(p);
+        // remove membership
+        try { run.group.remove(p); } catch (Exception ignored) {}
+        run.alive.remove(p.getUniqueId());
+
+        // strip kit items (keep drops/loot)
+        stripKitItems(p);
+
+        Location exit = Util.stringToLoc(cfg.lobbyExitStr());
+        Location lobby = Util.stringToLoc(cfg.lobbySpawnStr());
+        if (exit != null) p.teleport(exit);
+        else if (lobby != null) p.teleport(lobby);
+
+        p.sendMessage("§5[unrRifts] §7You left the run.");
+
+        if (run.alive.isEmpty()){
+            endRun(run, null, false);
+        }
+    }
+
+    // --- kit cleanup ---
+    private final org.bukkit.NamespacedKey KIT_TAG = new org.bukkit.NamespacedKey(UnrRiftsPlugin.get(), "unrrifts_kit");
+
+    private void markKitItem(org.bukkit.inventory.ItemStack is){
+        if (is == null) return;
+        var meta = is.getItemMeta();
+        if (meta == null) return;
+        meta.getPersistentDataContainer().set(KIT_TAG, org.bukkit.persistence.PersistentDataType.BYTE, (byte)1);
+        is.setItemMeta(meta);
+    }
+
+    private void stripKitItems(Player p){
+        if (p == null) return;
+        var inv = p.getInventory();
+        for (int i=0;i<inv.getSize();i++){
+            var it = inv.getItem(i);
+            if (it == null) continue;
+            var meta = it.getItemMeta();
+            if (meta == null) continue;
+            Byte b = meta.getPersistentDataContainer().get(KIT_TAG, org.bukkit.persistence.PersistentDataType.BYTE);
+            if (b != null && b == (byte)1){
+                inv.setItem(i, null);
+            }
+        }
+    }
+
     public boolean isInExfil(RunInstance run, Location loc){
         if (run.exfil == null || loc == null) return false;
         if (!loc.getWorld().equals(run.exfil.getWorld())) return false;
@@ -319,6 +377,9 @@ public void startRun(LobbyGroup group){
     private void completeExfil(RunInstance run, Player p){
         Location exit = Util.stringToLoc(cfg.lobbyExitStr());
         Location lobby = Util.stringToLoc(cfg.lobbySpawnStr());
+        // strip kit items (keep drops/loot) before leaving the run
+        stripKitItems(p);
+
         if (exit != null) p.teleport(exit);
         else if (lobby != null) p.teleport(lobby);
 
@@ -365,6 +426,7 @@ public void startRun(LobbyGroup group){
             if (p == null) continue;
             cancelExfil(p);
             if (p.getWorld().getName().equals(run.worldName)){
+                stripKitItems(p);
                 if (exit != null) p.teleport(exit);
                 else if (lobby != null) p.teleport(lobby);
             }

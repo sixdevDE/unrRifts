@@ -47,6 +47,8 @@ public class UnrRiftsPlugin extends JavaPlugin {
         // commands
         var rift = getCommand("rift");
         if (rift != null) rift.setExecutor(new RiftCommand(this, guiListener));
+        var rifts = getCommand("rifts");
+        if (rifts != null) rifts.setExecutor(new RiftCommand(this, guiListener));
 
         var unrrifts = getCommand("unrrifts");
         if (unrrifts != null) {

@@ -22,6 +22,16 @@ public class RiftCommand implements CommandExecutor {
             sender.sendMessage("Players only.");
             return true;
         }
+
+        // /rift leave → abort current run/queue without recording a win
+        if (args.length >= 1 && args[0].equalsIgnoreCase("leave")){
+            // leave queue if queued
+            plugin.groups().leave(p);
+            // leave run if currently inside one
+            plugin.runs().forceLeave(p);
+            return true;
+        }
+
         gui.openRoot(p);
         return true;
     }
