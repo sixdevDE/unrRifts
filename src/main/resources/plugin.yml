@@ -1,0 +1,61 @@
+name: unrRifts
+main: dev.sixdev.unrrifts.UnrRiftsPlugin
+version: 1.0.0
+api-version: '1.21'
+authors: [sixdev]
+softdepend: [Multiverse-Core, PlaceholderAPI]
+commands:
+  rift:
+    description: Open unrRifts GUI
+    usage: /rift
+  unrrifts:
+    description: Admin commands for unrRifts
+    usage: /unrrifts help
+    permission: unrrifts.admin
+  unrmapstartbuild:
+    description: Start building a manual unrRifts map in the current world
+    usage: /unrmapstartbuild <pve|pvp>
+    permission: unrrifts.admin
+  unrmapfinalize:
+    description: Finalize and save the current manual map build session
+    usage: /unrmapfinalize <name>
+    permission: unrrifts.admin
+  unrpspawn:
+    description: Add a player spawn (slots 1..6) to the current map build session
+    usage: /unrpspawn
+    permission: unrrifts.admin
+  unrmspawn:
+    description: Add a mob spawn to the current map build session
+    usage: /unrmspawn <entityType> [level] [--no_block_break]
+    permission: unrrifts.admin
+  unrbspawn:
+    description: Set the boss spawn for the current map build session
+    usage: /unrbspawn <bossId>
+    permission: unrrifts.admin
+  unrlspawn:
+    description: Add a loot spawn to the current map build session
+    usage: /unrlspawn [tier]
+    permission: unrrifts.admin
+  unrexfil:
+    description: Add an exfil spot to the current map build session
+    usage: /unrexfil
+    permission: unrrifts.admin
+  unrevent:
+    description: Add an event trigger point to the current map build session
+    usage: /unrevent <name>
+    permission: unrrifts.admin
+  unrmapsetbreak:
+    description: Set whether blocks can be broken/placed inside this map during runs
+    usage: /unrmapsetbreak <true|false>
+    permission: unrrifts.admin
+  unrsharedworld:
+    description: Set the shared world used to build multiple maps as regions
+    usage: /unrsharedworld set <world>
+    permission: unrrifts.admin
+  unrmapimportworld:
+    description: Register a dedicated world as a map (world-backed custom map)
+    usage: /unrmapimportworld <name> <world> <pve|pvp> <minPlayers> <maxPlayers> [break:true|false]
+    permission: unrrifts.admin
+permissions:
+  unrrifts.admin:
+    default: op

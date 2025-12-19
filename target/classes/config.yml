@@ -1,0 +1,148 @@
+# unrRifts configuration
+
+lobby:
+  world: "lobby"
+  spawn: ""   # set via /unrrifts setlobby
+  exit: ""    # set via /unrrifts setexit
+
+queue:
+  maxPlayersPerLobby: 6
+  minPlayers: 1
+  countdownSeconds: 15
+
+run:
+  # For cave/dungeon: build under ground
+  buildY: 40
+  maxHearts: 10
+  minHearts: 3
+  cleanupDelaySeconds: 10
+  exfil:
+    radius: 4
+    timerSeconds: 10
+
+boss:
+  type: "WITHER_SKELETON"
+  name: "Rift Warden"
+  health: 250.0
+  dropExfilToken: true
+  tokenItem:
+    material: "AMETHYST_SHARD"
+    name: "§dExfil Token"
+    lore:
+      - "§7Proof of victory."
+      - "§7Find the Exfil and extract."
+
+kits:
+  scout:
+    display: "§aScout"
+    icon: "LEATHER_BOOTS"
+    items:
+      - "STONE_SWORD"
+      - "STONE_PICKAXE"
+      - "COOKED_BEEF:8"
+      - "LADDER:6"
+      - "TORCH:32"
+      - "COMPASS:1"
+  tank:
+    display: "§bTank"
+    icon: "IRON_CHESTPLATE"
+    items:
+      - "IRON_SWORD"
+      - "STONE_PICKAXE"
+      - "COOKED_BEEF:10"
+      - "LADDER:6"
+      - "TORCH:48"
+      - "SHIELD:1"
+      - "COMPASS:1"
+  ranger:
+    display: "§eRanger"
+    icon: "BOW"
+    items:
+      - "BOW"
+      - "ARROW:64"
+      - "STONE_SWORD"
+      - "STONE_PICKAXE"
+      - "COOKED_BEEF:8"
+      - "LADDER:6"
+      - "TORCH:32"
+      - "COMPASS:1"
+  rogue:
+    display: "§dRogue"
+    icon: "ENDER_PEARL"
+    items:
+      - "STONE_SWORD"
+      - "STONE_PICKAXE"
+      - "COOKED_BEEF:8"
+      - "LADDER:6"
+      - "TORCH:32"
+      - "ENDER_PEARL:4"
+      - "COMPASS:1"
+  medic:
+    display: "§fMedic"
+    icon: "GOLDEN_APPLE"
+    items:
+      - "STONE_SWORD"
+      - "STONE_PICKAXE"
+      - "COOKED_BEEF:8"
+      - "LADDER:6"
+      - "TORCH:32"
+      - "GOLDEN_APPLE:2"
+      - "COMPASS:1"
+  builder:
+    display: "§6Builder"
+    icon: "SCAFFOLDING"
+    items:
+      - "STONE_SWORD"
+      - "STONE_PICKAXE"
+      - "COOKED_BEEF:8"
+      - "LADDER:6"
+      - "TORCH:32"
+      - "SCAFFOLDING:16"
+      - "COMPASS:1"
+
+loot:
+  chestsPerBranchMin: 1
+  chestsPerBranchMax: 3
+  heartUpgradeChance: 0.10
+  tiers:
+    common:
+      weight: 70
+      items:
+        - "BREAD:3-8"
+        - "COOKED_BEEF:2-6"
+        - "TORCH:8-24"
+        - "ARROW:8-32"
+        - "LADDER:2-6"
+    rare:
+      weight: 25
+      items:
+        - "GOLDEN_APPLE:1-2"
+        - "IRON_INGOT:2-6"
+        - "DIAMOND:1-2"
+        - "ENDER_PEARL:1-3"
+    epic:
+      weight: 5
+      items:
+        - "DIAMOND:2-4"
+        - "ENCHANTED_GOLDEN_APPLE:1"
+
+maps:
+  # Optional: name of the shared world where you build multiple maps as regions.
+  sharedWorld: ""
+  # Custom maps registry.
+  # Each map uses a template world folder copied into a run instance.
+  # Locations stored as "world,x,y,z,yaw,pitch"
+  registry: {}
+  # example:
+  # registry:
+  #   mymap:
+  #     enabled: true
+  #     templateWorld: "mymap_world"
+  #     hub: ""
+  #     boss: ""
+  #     exfil: ""
+  #     spawns:
+  #       "1": ""
+  #       "2": ""
+leaderboard:
+  file: "leaderboard.yml"
