@@ -40,13 +40,55 @@ public class RunManager {
         return runs.get(w.getName());
     }
 
-    
-public RunInstance runOf(org.bukkit.entity.Player p){
-    if (p == null || p.getWorld() == null) return null;
-    return runs.get(p.getWorld().getName());
-}
+    public RunInstance runOf(org.bukkit.entity.Player p){
+        if (p == null || p.getWorld() == null) return null;
+        return runs.get(p.getWorld().getName());
+    }
 
-public void startRun(LobbyGroup group){
+    public void forceLeave(Player p){
+        if (p == null) return;
+
+        RunInstance run = runOf(p);
+
+        // not in a run -> just teleport to exit/lobby
+        if (run == null){
+            org.bukkit.Location exit = Util.stringToLoc(cfg.lobbyExitStr());
+            org.bukkit.Location lobby = Util.stringToLoc(cfg.lobbySpawnStr());
+            if (exit != null) p.teleport(exit);
+            else if (lobby != null) p.teleport(lobby);
+            p.sendMessage("§5[unrRifts] §7Left.");
+            return;
+        }
+
+        // cancel exfil timer (if any) for this player
+        try { cancelExfil(p); } catch (Exception ignored) {}
+
+        UUID id = p.getUniqueId();
+
+        // remove from alive
+        try { run.alive.remove(id); } catch (Exception ignored) {}
+
+        // IMPORTANT: group stores UUIDs -> remove UUID from group.players()
+        try { run.group.players().remove(id); } catch (Exception ignored) {}
+
+        // optional cleanup if exists (avoid compile errors by catching Throwable)
+        try { run.group.kitSelected().remove(id); } catch (Throwable ignored) {}
+
+        // teleport out
+        org.bukkit.Location exit = Util.stringToLoc(cfg.lobbyExitStr());
+        org.bukkit.Location lobby = Util.stringToLoc(cfg.lobbySpawnStr());
+        if (exit != null) p.teleport(exit);
+        else if (lobby != null) p.teleport(lobby);
+
+        p.sendMessage("§5[unrRifts] §7You left the run. §8(No score)");
+
+        // end run if nobody remains
+        if (run.group.players().isEmpty()){
+            try { endRun(run, (Player)null, false); } catch (Exception ignored) {}
+        }
+    }
+
+    public void startRun(LobbyGroup group){
         // create run world
         String worldName = "unrrift_"+System.currentTimeMillis()+"_"+group.id().toString().substring(0,8);
         RunInstance run = new RunInstance(group, worldName);
@@ -89,6 +131,7 @@ public void startRun(LobbyGroup group){
             beginRunTeleportAndKits(run);
             spawnBoss(run);
             startCompassTasks(run);
+            if (run.manualMap) startDormantWakeTask(run);
         });
     }
 
@@ -191,8 +234,6 @@ public void startRun(LobbyGroup group){
         KitDefinition kit = cfg.kits().get(kitId);
         if (kit != null){
             for (ItemStack is : kit.buildItems()){
-                // mark kit items so we can strip them on run end/leave
-                markKitItem(is);
                 p.getInventory().addItem(is);
             }
             p.sendMessage("§5[unrRifts] §7Kit selected: §f"+kit.displayName());
@@ -312,62 +353,6 @@ public void startRun(LobbyGroup group){
         if (t != null) t.cancel();
     }
 
-    /**
-     * Player-initiated leave ("/rift leave").
-     * Removes the player from the current run (if any), strips kit items,
-     * teleports to exit, and DOES NOT record leaderboard.
-     */
-    public void forceLeave(Player p){
-        if (p == null || p.getWorld() == null) return;
-        RunInstance run = runByWorld(p.getWorld());
-        if (run == null) return;
-
-        cancelExfil(p);
-        // remove membership
-        try { run.group.remove(p); } catch (Exception ignored) {}
-        run.alive.remove(p.getUniqueId());
-
-        // strip kit items (keep drops/loot)
-        stripKitItems(p);
-
-        Location exit = Util.stringToLoc(cfg.lobbyExitStr());
-        Location lobby = Util.stringToLoc(cfg.lobbySpawnStr());
-        if (exit != null) p.teleport(exit);
-        else if (lobby != null) p.teleport(lobby);
-
-        p.sendMessage("§5[unrRifts] §7You left the run.");
-
-        if (run.alive.isEmpty()){
-            endRun(run, null, false);
-        }
-    }
-
-    // --- kit cleanup ---
-    private final org.bukkit.NamespacedKey KIT_TAG = new org.bukkit.NamespacedKey(UnrRiftsPlugin.get(), "unrrifts_kit");
-
-    private void markKitItem(org.bukkit.inventory.ItemStack is){
-        if (is == null) return;
-        var meta = is.getItemMeta();
-        if (meta == null) return;
-        meta.getPersistentDataContainer().set(KIT_TAG, org.bukkit.persistence.PersistentDataType.BYTE, (byte)1);
-        is.setItemMeta(meta);
-    }
-
-    private void stripKitItems(Player p){
-        if (p == null) return;
-        var inv = p.getInventory();
-        for (int i=0;i<inv.getSize();i++){
-            var it = inv.getItem(i);
-            if (it == null) continue;
-            var meta = it.getItemMeta();
-            if (meta == null) continue;
-            Byte b = meta.getPersistentDataContainer().get(KIT_TAG, org.bukkit.persistence.PersistentDataType.BYTE);
-            if (b != null && b == (byte)1){
-                inv.setItem(i, null);
-            }
-        }
-    }
-
     public boolean isInExfil(RunInstance run, Location loc){
         if (run.exfil == null || loc == null) return false;
         if (!loc.getWorld().equals(run.exfil.getWorld())) return false;
@@ -377,9 +362,6 @@ public void startRun(LobbyGroup group){
     private void completeExfil(RunInstance run, Player p){
         Location exit = Util.stringToLoc(cfg.lobbyExitStr());
         Location lobby = Util.stringToLoc(cfg.lobbySpawnStr());
-        // strip kit items (keep drops/loot) before leaving the run
-        stripKitItems(p);
-
         if (exit != null) p.teleport(exit);
         else if (lobby != null) p.teleport(lobby);
 
@@ -418,6 +400,13 @@ public void startRun(LobbyGroup group){
         BossBar bb = bossBars.remove(run.worldName);
         if (bb != null) bb.removeAll();
 
+        // stop dormant wake task
+        if (run.dormantWakeTask != null){
+            try { run.dormantWakeTask.cancel(); } catch (Exception ignored) {}
+            run.dormantWakeTask = null;
+            run.dormantMobs.clear();
+        }
+
         // teleport remaining players out
         Location exit = Util.stringToLoc(cfg.lobbyExitStr());
         Location lobby = Util.stringToLoc(cfg.lobbySpawnStr());
@@ -426,7 +415,6 @@ public void startRun(LobbyGroup group){
             if (p == null) continue;
             cancelExfil(p);
             if (p.getWorld().getName().equals(run.worldName)){
-                stripKitItems(p);
                 if (exit != null) p.teleport(exit);
                 else if (lobby != null) p.teleport(lobby);
             }
@@ -463,128 +451,210 @@ public void startRun(LobbyGroup group){
         }
     }
 
-    
-	private static String mapGetStr(java.util.Map<?,?> m, String key, String def){
-	    Object v = m.get(key);
-	    return v == null ? def : String.valueOf(v);
-	}
-	private static int mapGetInt(java.util.Map<?,?> m, String key, int def){
-	    Object v = m.get(key);
-	    if (v == null) return def;
-	    try { return Integer.parseInt(String.valueOf(v)); } catch (Exception ignored){ return def; }
-	}
-
-	private void spawnManualContent(RunInstance run, MapRegistry reg, String mapName){
-    try {
-        // Loot spawns
-        for (var o : reg.lootSpawns(mapName)){
-            if (!(o instanceof java.util.Map<?,?> m)) continue;
-	            String tier = mapGetStr(m, "tier", "T1");
-	            String locS = mapGetStr(m, "loc", "");
-            org.bukkit.Location l = Util.stringToLoc(locS);
-            if (l == null) continue;
-            l.setWorld(run.world);
-
-            org.bukkit.block.Block b = run.world.getBlockAt(l);
-            b.setType(org.bukkit.Material.CHEST, false);
-            org.bukkit.block.BlockState st = b.getState();
-            if (st instanceof org.bukkit.block.Chest chest){
-                fillChest(chest.getBlockInventory(), tier);
-            }
-        }
-
-        // Mob spawns
-        for (var o : reg.mobSpawns(mapName)){
-            if (!(o instanceof java.util.Map<?,?> m)) continue;
-	            String typeS = mapGetStr(m, "type", "ZOMBIE");
-	            int level = mapGetInt(m, "level", 1);
-	            String locS = mapGetStr(m, "loc", "");
-            org.bukkit.Location l = Util.stringToLoc(locS);
-            if (l == null) continue;
-            l.setWorld(run.world);
-
-            org.bukkit.entity.EntityType type;
-            try { type = org.bukkit.entity.EntityType.valueOf(Util.upper(typeS)); }
-            catch (Exception ex){ type = org.bukkit.entity.EntityType.ZOMBIE; }
-
-            org.bukkit.entity.Entity e = run.world.spawnEntity(l, type);
-            e.setPersistent(true);
-            // simple "level" => extra health if living
-            if (e instanceof org.bukkit.entity.LivingEntity le){
-                double base = le.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH) != null ?
-                        le.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).getBaseValue() : 20.0;
-                double hp = Math.min(200.0, base + (level-1)*5.0);
-                if (le.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH) != null){
-                    le.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).setBaseValue(hp);
-                }
-                le.setHealth(Math.min(hp, le.getHealth()));
-            }
-        }
-
-        // Exfil override (use first)
-        java.util.List<String> ex = reg.exfils(mapName);
-        if (ex != null && !ex.isEmpty()){
-            org.bukkit.Location l = Util.stringToLoc(ex.get(0));
-            if (l != null){
-                l.setWorld(run.world);
-                run.exfil = l;
-            }
-        }
-
-        // Boss override via manual boss loc (already loaded), bossId currently only affects name if configured
-        String bossId = reg.bossId(mapName);
-        if (bossId != null && !bossId.isBlank()){
-            run.customBossId = bossId;
-        }
-    } catch (Exception ex){
-        plugin.getLogger().warning("Manual content spawn failed: "+ex.getMessage());
+    private static String mapGetStr(java.util.Map<?,?> m, String key, String def){
+        Object v = m.get(key);
+        return v == null ? def : String.valueOf(v);
     }
-}
+    private static int mapGetInt(java.util.Map<?,?> m, String key, int def){
+        Object v = m.get(key);
+        if (v == null) return def;
+        try { return Integer.parseInt(String.valueOf(v)); } catch (Exception ignored){ return def; }
+    }
 
-private void fillChest(org.bukkit.inventory.Inventory inv, String tier){
-    try {
-        LootConfig lc = cfg.loot();
-        java.util.List<LootConfig.Tier> tiers = lc.tiers();
-        LootConfig.Tier chosen = null;
-        for (LootConfig.Tier t : tiers){
-            if (t.id().equalsIgnoreCase(tier)){
-                chosen = t; break;
+    private void spawnManualContent(RunInstance run, MapRegistry reg, String mapName){
+        try {
+            // Loot spawns
+            for (var o : reg.lootSpawns(mapName)){
+                if (!(o instanceof java.util.Map<?,?> m)) continue;
+                String tier = mapGetStr(m, "tier", "T1");
+                String locS = mapGetStr(m, "loc", "");
+                org.bukkit.Location l = Util.stringToLoc(locS);
+                if (l == null) continue;
+                l.setWorld(run.world);
+
+                org.bukkit.block.Block b = run.world.getBlockAt(l);
+                b.setType(org.bukkit.Material.CHEST, false);
+                // set chest facing based on saved yaw at marker placement
+                try {
+                    org.bukkit.block.data.BlockData bd = b.getBlockData();
+                    if (bd instanceof org.bukkit.block.data.Directional dir){
+                        dir.setFacing(yawToFace(l.getYaw()));
+                        b.setBlockData(dir, false);
+                    }
+                } catch (Exception ignored) {}
+                org.bukkit.block.BlockState st = b.getState();
+                if (st instanceof org.bukkit.block.Chest chest){
+                    fillChest(chest.getBlockInventory(), tier);
+                }
             }
-        }
-        if (chosen == null && !tiers.isEmpty()) chosen = tiers.get(0);
-        if (chosen == null) return;
 
-        java.util.Random rnd = new java.util.Random();
-        int rolls = Math.max(1, cfg.getInt("loot.manual.rollsPerChest", 4));
-        for (int i=0;i<rolls;i++){
-            String itemS = chosen.items().get(rnd.nextInt(chosen.items().size()));
-            org.bukkit.inventory.ItemStack it = ItemParser.parse(itemS);
-            if (it == null) continue;
-            inv.addItem(it);
-        }
-    } catch (Exception ignored){}
-}
+            // Mob spawns
+            for (var o : reg.mobSpawns(mapName)){
+                if (!(o instanceof java.util.Map<?,?> m)) continue;
+                String typeS = mapGetStr(m, "type", "ZOMBIE");
+                int level = mapGetInt(m, "level", 1);
+                String locS = mapGetStr(m, "loc", "");
+                org.bukkit.Location l = Util.stringToLoc(locS);
+                if (l == null) continue;
+                l.setWorld(run.world);
 
-private void spawnBoss(RunInstance run){
+                org.bukkit.entity.EntityType type;
+                try { type = org.bukkit.entity.EntityType.valueOf(Util.upper(typeS)); }
+                catch (Exception ex){ type = org.bukkit.entity.EntityType.ZOMBIE; }
+
+                org.bukkit.entity.Entity e = run.world.spawnEntity(l, type);
+                e.setPersistent(true);
+                // keep mobs dormant until a player comes close
+                if (e instanceof org.bukkit.entity.Mob mob){
+                    try { mob.setAI(false); } catch (Exception ignored) {}
+                    try { mob.setAware(false); } catch (Exception ignored) {}
+                    try { mob.setSilent(true); } catch (Exception ignored) {}
+                    run.dormantMobs.add(mob.getUniqueId());
+                }
+                // simple "level" => extra health if living
+                if (e instanceof org.bukkit.entity.LivingEntity le){
+                    double base = le.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH) != null ?
+                            le.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).getBaseValue() : 20.0;
+                    double hp = Math.min(200.0, base + (level-1)*5.0);
+                    if (le.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH) != null){
+                        le.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).setBaseValue(hp);
+                    }
+                    le.setHealth(Math.min(hp, le.getHealth()));
+                }
+            }
+
+            // Exfil override (use first)
+            java.util.List<String> ex = reg.exfils(mapName);
+            if (ex != null && !ex.isEmpty()){
+                org.bukkit.Location l = Util.stringToLoc(ex.get(0));
+                if (l != null){
+                    l.setWorld(run.world);
+                    run.exfil = l;
+                }
+            }
+
+            // Boss override via manual boss loc (already loaded), bossId currently only affects name if configured
+            String bossId = reg.bossId(mapName);
+            if (bossId != null && !bossId.isBlank()){
+                run.customBossId = bossId;
+            }
+        } catch (Exception ex){
+            plugin.getLogger().warning("Manual content spawn failed: "+ex.getMessage());
+        }
+    }
+
+    private org.bukkit.block.BlockFace yawToFace(float yaw){
+        // normalize to 0..360
+        float y = yaw % 360f;
+        if (y < 0) y += 360f;
+        // Minecraft yaw: 0 = South, 90 = West, 180 = North, 270 = East
+        if (y >= 45f && y < 135f) return org.bukkit.block.BlockFace.WEST;
+        if (y >= 135f && y < 225f) return org.bukkit.block.BlockFace.NORTH;
+        if (y >= 225f && y < 315f) return org.bukkit.block.BlockFace.EAST;
+        return org.bukkit.block.BlockFace.SOUTH;
+    }
+
+    private void startDormantWakeTask(RunInstance run){
+        if (run == null || run.world == null) return;
+        if (run.dormantWakeTask != null) return;
+        run.dormantWakeTask = org.bukkit.Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            try {
+                if (run.world == null) return;
+                if (run.dormantMobs.isEmpty()) return;
+
+                java.util.Iterator<java.util.UUID> it = run.dormantMobs.iterator();
+                while (it.hasNext()){
+                    java.util.UUID id = it.next();
+                    org.bukkit.entity.Entity e = run.world.getEntity(id);
+                    if (!(e instanceof org.bukkit.entity.Mob mob)){
+                        it.remove();
+                        continue;
+                    }
+                    if (!mob.isValid() || mob.isDead()){
+                        it.remove();
+                        continue;
+                    }
+
+                    // wake if any alive player is within 10 blocks
+                    boolean shouldWake = false;
+                    org.bukkit.Location ml = mob.getLocation();
+                    for (java.util.UUID pu : new java.util.HashSet<>(run.alive)){
+                        org.bukkit.entity.Player p = org.bukkit.Bukkit.getPlayer(pu);
+                        if (p == null) continue;
+                        if (p.getWorld() != run.world) continue;
+                        if (p.getLocation().distanceSquared(ml) <= (10.0 * 10.0)){
+                            shouldWake = true;
+                            break;
+                        }
+                    }
+                    if (shouldWake){
+                        try { mob.setSilent(false); } catch (Exception ignored) {}
+                        try { mob.setAware(true); } catch (Exception ignored) {}
+                        try { mob.setAI(true); } catch (Exception ignored) {}
+                        it.remove();
+                    }
+                }
+
+                // stop task once everything is awake
+                if (run.dormantMobs.isEmpty() && run.dormantWakeTask != null){
+                    run.dormantWakeTask.cancel();
+                    run.dormantWakeTask = null;
+                }
+            } catch (Exception ignored) {}
+        }, 10L, 10L);
+    }
+
+    private void fillChest(org.bukkit.inventory.Inventory inv, String tier){
+        try {
+            LootConfig lc = cfg.loot();
+            java.util.List<LootConfig.Tier> tiers = lc.tiers();
+            LootConfig.Tier chosen = null;
+            for (LootConfig.Tier t : tiers){
+                if (t.id().equalsIgnoreCase(tier)){
+                    chosen = t; break;
+                }
+            }
+            if (chosen == null && !tiers.isEmpty()) chosen = tiers.get(0);
+            if (chosen == null) return;
+
+            java.util.Random rnd = new java.util.Random();
+            int rolls = Math.max(1, cfg.getInt("loot.manual.rollsPerChest", 4));
+            for (int i=0;i<rolls;i++){
+                String itemS = chosen.items().get(rnd.nextInt(chosen.items().size()));
+                org.bukkit.inventory.ItemStack it = ItemParser.parse(itemS);
+                if (it == null) continue;
+                inv.addItem(it);
+            }
+        } catch (Exception ignored){}
+    }
+
+    private void spawnBoss(RunInstance run){
         if (run.bossRoom == null) return;
 
         String bossId = run.customBossId;
-EntityType type = cfg.bossType();
-String name = cfg.bossName();
-double health = cfg.bossHealth();
-if (bossId != null && !bossId.isBlank()){
-    String path = "bosses."+bossId+".";
-    String t = plugin.getConfig().getString(path+"type", "");
-    if (t != null && !t.isBlank()){
-        try { type = EntityType.valueOf(Util.upper(t)); } catch (Exception ignored) {}
-    }
-    String n = plugin.getConfig().getString(path+"name", "");
-    if (n != null && !n.isBlank()) name = n;
-    health = plugin.getConfig().getDouble(path+"health", health);
-}
+        EntityType type = cfg.bossType();
+        String name = cfg.bossName();
+        double health = cfg.bossHealth();
+        if (bossId != null && !bossId.isBlank()){
+            String path = "bosses."+bossId+".";
+            String t = plugin.getConfig().getString(path+"type", "");
+            if (t != null && !t.isBlank()){
+                try { type = EntityType.valueOf(Util.upper(t)); } catch (Exception ignored) {}
+            }
+            String n = plugin.getConfig().getString(path+"name", "");
+            if (n != null && !n.isBlank()) name = n;
+            health = plugin.getConfig().getDouble(path+"health", health);
+        }
 
-LivingEntity boss = (LivingEntity) run.world.spawnEntity(run.bossRoom, type);
-boss.setCustomName("§c"+name);
+        LivingEntity boss = (LivingEntity) run.world.spawnEntity(run.bossRoom, type);
+        // boss starts dormant (manual maps): wakes when a player gets within 10 blocks
+        if (run.manualMap && boss instanceof org.bukkit.entity.Mob mob){
+            try { mob.setAI(false); } catch (Exception ignored) {}
+            try { mob.setAware(false); } catch (Exception ignored) {}
+            try { mob.setSilent(true); } catch (Exception ignored) {}
+            run.dormantMobs.add(mob.getUniqueId());
+        }
+        boss.setCustomName("§c"+name);
 
         boss.setCustomNameVisible(true);
         boss.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).setBaseValue(health);
