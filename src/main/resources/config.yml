@@ -127,8 +127,8 @@ loot:
         - "ENCHANTED_GOLDEN_APPLE:1"
 
 maps:
-  # Optional: name of the shared world where you build multiple maps as regions.
-  sharedWorld: ""
+  manual:
+    borderScanRadius: 128
   # Custom maps registry.
   # Each map uses a template world folder copied into a run instance.
   # Locations stored as "world,x,y,z,yaw,pitch"
@@ -146,3 +146,10 @@ maps:
   #       "2": ""
 leaderboard:
   file: "leaderboard.yml"
+
+# Optional: define custom bosses used by /unrbspawn <bossId>
+bosses:
+  default:
+    type: WITHER
+    name: Rift Boss
+    health: 200

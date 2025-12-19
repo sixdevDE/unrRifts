@@ -1,365 +1,302 @@
 package dev.sixdev.unrrifts.cmd;
 
+import dev.sixdev.unrrifts.UnrRiftsPlugin;
 import dev.sixdev.unrrifts.core.*;
-import org.bukkit.Bukkit;
+import org.bukkit.*;
+import org.bukkit.block.Block;
+import org.bukkit.block.Chest;
 import org.bukkit.command.*;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
-/**
- * Drop-in manual map builder commands.
- *
- * Flow:
- *   /unrmapstartbuild <pve|pvp>
- *   place REDSTONE_BLOCKS as boundary markers (optional but recommended)
- *   /unrpspawn (repeat 1..6)
- *   /unrmspawn <entityType> [level] [--no_block_break]
- *   /unrbspawn <bossId>
- *   /unrlspawn [tier]
- *   /unrexfil
- *   /unrevent <name>
- *   /unrmapsetbreak <true|false>
- *   /unrmapfinalize <name>
- */
-public final class MapBuildCommands implements CommandExecutor, TabCompleter {
+public class MapBuildCommands implements CommandExecutor {
 
-    private final MapBuildManager build;
+    private final UnrRiftsPlugin plugin;
+    private final ConfigService cfg;
+    private final MapBuildManager builds;
 
-    public MapBuildCommands(MapBuildManager build) {
-        this.build = build;
+    public MapBuildCommands(UnrRiftsPlugin plugin, ConfigService cfg, MapBuildManager builds){
+        this.plugin = plugin;
+        this.cfg = cfg;
+        this.builds = builds;
+    }
+
+    private boolean admin(CommandSender s){
+        return (s instanceof Player) && s.hasPermission("unrrifts.admin");
     }
 
     @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player p)) {
-            sender.sendMessage("This command can only be used in-game.");
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args){
+        if (!(sender instanceof Player p)){
+            sender.sendMessage("Players only.");
+            return true;
+        }
+        if (!p.hasPermission("unrrifts.admin")){
+            p.sendMessage("§cNo permission.");
+            return true;
+        }
+        String cmd = command.getName().toLowerCase(Locale.ROOT);
+        return switch (cmd){
+            case "unrmapstartbuild" -> cmdStart(p, args);
+            case "unrmapfinalize" -> cmdFinalize(p, args);
+            case "unrmapsetbreak" -> cmdSetBreak(p, args);
+            case "unrpspawn" -> cmdPlayerSpawn(p);
+            case "unrmspawn" -> cmdMobSpawn(p, args);
+            case "unrlspawn" -> cmdLootSpawn(p, args);
+            case "unrbspawn" -> cmdBossSpawn(p, args);
+            case "unrexfil" -> cmdExfil(p);
+            case "unrevent" -> cmdEvent(p, args);
+            default -> { p.sendMessage("§cUnknown."); yield true; }
+        };
+    }
+
+    private boolean cmdStart(Player p, String[] args){
+        if (args.length < 2){
+            p.sendMessage("§cUsage: /unrmapstartbuild <name> <pve|pvp> [break:true|false]");
+            return true;
+        }
+        String name = args[0].trim();
+        RunMode mode = "PVP".equalsIgnoreCase(args[1]) ? RunMode.PVP : RunMode.PVE;
+        boolean allowBreak = true;
+        if (args.length >= 3) allowBreak = Boolean.parseBoolean(args[2]);
+        MapBuildSession s = builds.start(p, name, mode, allowBreak);
+        p.sendMessage("§aBuild session started for §f"+name+"§a in world §f"+s.worldName+"§a (mode "+mode.display()+", break="+allowBreak+").");
+        p.sendMessage("§7Place §cREDSTONE_BLOCK§7s as border markers while building.");
+        return true;
+    }
+
+    private boolean cmdSetBreak(Player p, String[] args){
+        MapBuildSession s = builds.get(p);
+        if (s == null){ p.sendMessage("§cNo active build session."); return true; }
+        if (args.length != 1){ p.sendMessage("§cUsage: /unrmapsetbreak <true|false>"); return true; }
+        s.allowBreak = Boolean.parseBoolean(args[0]);
+        p.sendMessage("§aallowBreak set to "+s.allowBreak);
+        return true;
+    }
+
+    private boolean cmdPlayerSpawn(Player p){
+        MapBuildSession s = builds.get(p);
+        if (s == null){ p.sendMessage("§cNo active build session."); return true; }
+        int slot = s.nextPlayerSlot;
+        if (slot > 6){ p.sendMessage("§cAlready set 6 player spawns."); return true; }
+        s.playerSpawns.put(slot, Util.locToString(p.getLocation()));
+        s.nextPlayerSlot++;
+        p.sendMessage("§aSet player spawn slot §f"+slot+"§a.");
+        return true;
+    }
+
+    private boolean cmdMobSpawn(Player p, String[] args){
+        MapBuildSession s = builds.get(p);
+        if (s == null){ p.sendMessage("§cNo active build session."); return true; }
+        if (args.length < 1){
+            p.sendMessage("§cUsage: /unrmspawn <entityType> [level] [--no_block_break]");
+            return true;
+        }
+        String type = Util.upper(args[0]);
+        int level = 1;
+        boolean noBreak = false;
+        for (int i=1;i<args.length;i++){
+            if (args[i].equalsIgnoreCase("--no_block_break")) noBreak = true;
+            else {
+                try { level = Integer.parseInt(args[i]); } catch (Exception ignored){}
+            }
+        }
+        s.mobSpawns.add(new MapBuildSession.MobSpawn(type, level, noBreak, Util.locToString(p.getLocation())));
+        p.sendMessage("§aAdded mob spawn: §f"+type+"§a (lvl "+level+", noBreak="+noBreak+")");
+        return true;
+    }
+
+    private boolean cmdLootSpawn(Player p, String[] args){
+        MapBuildSession s = builds.get(p);
+        if (s == null){ p.sendMessage("§cNo active build session."); return true; }
+        String tier = args.length >= 1 ? args[0] : "T1";
+        s.lootSpawns.add(new MapBuildSession.LootSpawn(tier, Util.locToString(p.getLocation())));
+        p.sendMessage("§aAdded loot spawn tier §f"+tier+"§a.");
+        return true;
+    }
+
+    private boolean cmdBossSpawn(Player p, String[] args){
+        MapBuildSession s = builds.get(p);
+        if (s == null){ p.sendMessage("§cNo active build session."); return true; }
+        if (args.length < 1){
+            p.sendMessage("§cUsage: /unrbspawn <bossId>");
+            return true;
+        }
+        s.bossId = args[0];
+        s.bossLoc = Util.locToString(p.getLocation());
+        p.sendMessage("§aBoss spawn set: §f"+s.bossId+"§a.");
+        return true;
+    }
+
+    private boolean cmdExfil(Player p){
+        MapBuildSession s = builds.get(p);
+        if (s == null){ p.sendMessage("§cNo active build session."); return true; }
+        s.exfils.add(Util.locToString(p.getLocation()));
+        p.sendMessage("§aAdded exfil spot.");
+        return true;
+    }
+
+    private boolean cmdEvent(Player p, String[] args){
+        MapBuildSession s = builds.get(p);
+        if (s == null){ p.sendMessage("§cNo active build session."); return true; }
+        if (args.length < 1){
+            p.sendMessage("§cUsage: /unrevent <name>");
+            return true;
+        }
+        String name = args[0];
+        s.events.put(name, Util.locToString(p.getLocation()));
+        p.sendMessage("§aSet event trigger §f"+name+"§a.");
+        return true;
+    }
+
+    private boolean cmdFinalize(Player p, String[] args){
+        MapBuildSession s = builds.get(p);
+        if (s == null){ p.sendMessage("§cNo active build session."); return true; }
+        if (args.length < 1){
+            p.sendMessage("§cUsage: /unrmapfinalize <name>");
+            return true;
+        }
+        String name = args[0].trim();
+        if (!name.equalsIgnoreCase(s.mapName)){
+            p.sendMessage("§cThis session is for map §f"+s.mapName+"§c.");
             return true;
         }
 
-        String cmd = command.getName().toLowerCase(Locale.ROOT);
-        UUID id = p.getUniqueId();
-        MapBuildSession s = build.session(id);
+        MapRegistry reg = cfg.maps();
+        // ensure base entry exists
+        if (!reg.exists(name)){
+            reg.create(name, s.worldName);
+        } else {
+            reg.setTemplateWorld(name, s.worldName);
+        }
+        reg.setEnabled(name, true);
+        reg.setManual(name, true);
+        reg.setMode(name, s.mode.name());
+        reg.setAllowBreak(name, s.allowBreak);
 
-        switch (cmd) {
-            case "unrsharedworld" -> {
-                if (args.length < 2 || !args[0].equalsIgnoreCase("set")) {
-                    p.sendMessage("§8[unrRifts] §7Usage: §e/unrsharedworld set <world>");
-                    return true;
-                }
-                String w = args[1].trim();
-                if (w.isBlank()) {
-                    p.sendMessage("§8[unrRifts] §cInvalid world name.");
-                    return true;
-                }
-                if (Bukkit.getWorld(w) == null) {
-                    p.sendMessage("§8[unrRifts] §cWorld not loaded/found: §e" + w);
-                    return true;
-                }
-                build.plugin().getConfig().set("maps.sharedWorld", w);
-                build.plugin().saveConfig();
-                p.sendMessage("§8[unrRifts] §aShared map world set to: §e" + w);
-                return true;
-            }
-            case "unrmapimportworld" -> {
-                if (args.length < 5) {
-                    p.sendMessage("§8[unrRifts] §7Usage: §e/unrmapimportworld <name> <world> <pve|pvp> <minPlayers> <maxPlayers> [break:true|false]");
-                    return true;
-                }
-                String name = args[0].trim();
-                String world = args[1].trim();
-                String mode = args[2].trim().toUpperCase(Locale.ROOT);
-                int minP, maxP;
-                try { minP = Integer.parseInt(args[3]); maxP = Integer.parseInt(args[4]); } catch (Exception e) {
-                    p.sendMessage("§8[unrRifts] §cminPlayers/maxPlayers must be numbers.");
-                    return true;
-                }
-                if (minP < 1) minP = 1;
-                if (maxP > 6) maxP = 6;
-                if (maxP < minP) maxP = minP;
-                if (!mode.equals("PVE") && !mode.equals("PVP")) {
-                    p.sendMessage("§8[unrRifts] §cMode must be pve or pvp.");
-                    return true;
-                }
-                if (name.isBlank()) {
-                    p.sendMessage("§8[unrRifts] §cInvalid name.");
-                    return true;
-                }
-                if (build.store().exists(name)) {
-                    p.sendMessage("§8[unrRifts] §cA map with that name already exists: §e" + name);
-                    return true;
-                }
-                if (Bukkit.getWorld(world) == null) {
-                    p.sendMessage("§8[unrRifts] §cWorld not loaded/found: §e" + world);
-                    return true;
-                }
-                boolean allowBreak = true;
-                if (args.length >= 6) {
-                    String v = args[5].trim().toLowerCase(Locale.ROOT);
-                    if (v.equals("true") || v.equals("yes") || v.equals("1")) allowBreak = true;
-                    else if (v.equals("false") || v.equals("no") || v.equals("0")) allowBreak = false;
-                }
-                ManualMapData d = new ManualMapData();
-                d.name = name;
-                d.world = world;
-                d.source = MapSource.WORLD;
-                d.mode = mode;
-                d.minPlayers = minP;
-                d.maxPlayers = maxP;
-                d.allowBreak = allowBreak;
-                build.store().writeMap(d);
-                p.sendMessage("§8[unrRifts] §aWorld map registered: §e" + name + " §7(world §e" + world + "§7).");
-                p.sendMessage("§8[unrRifts] §7Now go to that world and run §e/unrmapstartbuild " + (mode.equals("PVP") ? "pvp" : "pve") + "§7, set spawns/markers, then §e/unrmapfinalize " + name + " --force");
-                return true;
-            }
-            case "unrmapstartbuild" -> {
-                if (s != null) {
-                    p.sendMessage("§8[unrRifts] §cYou already have an active build session. Use /unrmapfinalize <name> or just start over by restarting the session.");
-                    return true;
-                }
-                if (args.length < 1) {
-                    p.sendMessage("§8[unrRifts] §7Usage: §e/unrmapstartbuild <pve|pvp> [break:true|false]");
-                    return true;
-                }
-                String mode = Util.upper(args[0]);
-                if (!mode.equals("PVE") && !mode.equals("PVP")) {
-                    p.sendMessage("§8[unrRifts] §cMode must be PVE or PVP.");
-                    return true;
-                }
-                boolean allowBreak = true;
-                if (args.length >= 2) {
-                    String v = args[1].trim().toLowerCase(Locale.ROOT);
-                    if (v.equals("false") || v.equals("no") || v.equals("0")) allowBreak = false;
-                    if (v.equals("true") || v.equals("yes") || v.equals("1")) allowBreak = true;
-                }
-
-                boolean ok = build.start(id, p.getWorld().getName(), mode, allowBreak);
-                if (!ok) {
-                    p.sendMessage("§8[unrRifts] §cCould not start build session.");
-                    return true;
-                }
-                p.sendMessage("§8[unrRifts] §aBuild session started in world §e" + p.getWorld().getName() + "§a (" + mode + ").");
-                p.sendMessage("§8[unrRifts] §7Block breaking inside this map during runs: " + (allowBreak ? "§aENABLED" : "§cDISABLED") + "§7. You can change it with §e/unrmapsetbreak <true|false>§7.");
-                p.sendMessage("§8[unrRifts] §7Place §cREDSTONE_BLOCK§7s to mark your map boundary. Then use /unrpspawn, /unrmspawn, /unrbspawn, /unrlspawn, /unrexfil, /unrevent.");
-                return true;
-            }
-
-            case "unrmapsetbreak" -> {
-                if (s == null) {
-                    p.sendMessage("§8[unrRifts] §cNo active build session. Use /unrmapstartbuild first.");
-                    return true;
-                }
-                if (args.length < 1) {
-                    p.sendMessage("§8[unrRifts] §7Usage: §e/unrmapsetbreak <true|false>");
-                    return true;
-                }
-                String v = args[0].trim().toLowerCase(Locale.ROOT);
-                boolean allow;
-                if (v.equals("true") || v.equals("yes") || v.equals("1")) allow = true;
-                else if (v.equals("false") || v.equals("no") || v.equals("0")) allow = false;
-                else {
-                    p.sendMessage("§8[unrRifts] §cValue must be true/false.");
-                    return true;
-                }
-                s.allowBreak = allow;
-                p.sendMessage("§8[unrRifts] §aallowBreak set to: " + (allow ? "§atrue" : "§cfalse"));
-                return true;
-            }
-
-            case "unrmapfinalize" -> {
-                if (s == null) {
-                    p.sendMessage("§8[unrRifts] §cNo active build session. Use /unrmapstartbuild first.");
-                    return true;
-                }
-                if (args.length < 1) {
-                    p.sendMessage("§8[unrRifts] §7Usage: §e/unrmapfinalize <name> [--force]");
-                    return true;
-                }
-                String name = args[0].trim();
-                if (name.isBlank()) {
-                    p.sendMessage("§8[unrRifts] §cInvalid name.");
-                    return true;
-                }
-
-                boolean force = false;
-                for (int i = 1; i < args.length; i++) {
-                    if (args[i].equalsIgnoreCase("--force")) {
-                        force = true;
-                        break;
-                    }
-                }
-
-                if (build.store().exists(name) && !force) {
-                    p.sendMessage("§8[unrRifts] §cMap already exists: §e" + name + " §7(use §e/unrmapfinalize " + name + " --force§7 to overwrite)");
-                    return true;
-                }
-
-                if (s.playerSpawns.isEmpty()) {
-                    p.sendMessage("§8[unrRifts] §cYou must set at least 1 player spawn using /unrpspawn.");
-                    return true;
-                }
-
-                boolean buildBarrier = true;
-                ManualMapData data = build.finalize(id, name, buildBarrier);
-                if (data == null) {
-                    p.sendMessage("§8[unrRifts] §cFailed to finalize map.");
-                    return true;
-                }
-
-                p.sendMessage("§8[unrRifts] §aMap saved: §e" + name + "§a (" + data.mode + ")");
-                p.sendMessage("§8[unrRifts] §7Spawns: §e" + data.playerSpawns.size()
-                        + "§7, Mobs: §e" + data.mobSpawns.size()
-                        + "§7, Loot: §e" + data.lootSpawns.size()
-                        + "§7, Exfil: §e" + data.exfilSpots.size());
-                p.sendMessage("§8[unrRifts] §7BBox: §e[" + data.minX + "," + data.minZ + "] -> [" + data.maxX + "," + data.maxZ + "]§7 | Boundary points: §e" + data.boundary.size());
-                return true;
-            }
-
-            case "unrpspawn" -> {
-                if (s == null) {
-                    p.sendMessage("§8[unrRifts] §cNo active build session. Use /unrmapstartbuild first.");
-                    return true;
-                }
-                if (s.playerSpawns.size() >= 6) {
-                    p.sendMessage("§8[unrRifts] §cYou already set 6 player spawns.");
-                    return true;
-                }
-                int slot = s.nextPlayerSlot();
-                s.playerSpawns.add(Util.locToString(p.getLocation()));
-                p.sendMessage("§8[unrRifts] §aPlayer spawn set for slot §e" + slot + "§a.");
-                return true;
-            }
-
-            case "unrmspawn" -> {
-                if (s == null) {
-                    p.sendMessage("§8[unrRifts] §cNo active build session. Use /unrmapstartbuild first.");
-                    return true;
-                }
-                if (args.length < 1) {
-                    p.sendMessage("§8[unrRifts] §7Usage: §e/unrmspawn <entityType> [level] [--no_block_break]");
-                    return true;
-                }
-                String entityType = Util.upper(args[0]);
-                int level = 0;
-                boolean noBB = false;
-                for (int i = 1; i < args.length; i++) {
-                    if (args[i].equalsIgnoreCase("--no_block_break")) noBB = true;
-                    else {
-                        try { level = Integer.parseInt(args[i]); } catch (Exception ignored) {}
-                    }
-                }
-                s.mobSpawns.add(new ManualMapData.MobSpawn(entityType, level, noBB, Util.locToString(p.getLocation())));
-                p.sendMessage("§8[unrRifts] §aMob spawn added: §e" + entityType + "§a level §e" + level + "§a" + (noBB ? " §7(no_block_break)" : ""));
-                return true;
-            }
-
-            case "unrbspawn" -> {
-                if (s == null) {
-                    p.sendMessage("§8[unrRifts] §cNo active build session. Use /unrmapstartbuild first.");
-                    return true;
-                }
-                if (args.length < 1) {
-                    p.sendMessage("§8[unrRifts] §7Usage: §e/unrbspawn <bossId>");
-                    return true;
-                }
-                s.bossId = args[0].trim();
-                s.bossLoc = Util.locToString(p.getLocation());
-                p.sendMessage("§8[unrRifts] §aBoss spawn set: §e" + s.bossId);
-                return true;
-            }
-
-            case "unrlspawn" -> {
-                if (s == null) {
-                    p.sendMessage("§8[unrRifts] §cNo active build session. Use /unrmapstartbuild first.");
-                    return true;
-                }
-                String tier = args.length >= 1 ? args[0].trim() : "T1";
-                if (tier.isBlank()) tier = "T1";
-                s.lootSpawns.add(new ManualMapData.LootSpawn(tier, Util.locToString(p.getLocation())));
-                p.sendMessage("§8[unrRifts] §aLoot spawn added (" + tier + ").");
-                return true;
-            }
-
-            case "unrexfil" -> {
-                if (s == null) {
-                    p.sendMessage("§8[unrRifts] §cNo active build session. Use /unrmapstartbuild first.");
-                    return true;
-                }
-                s.exfilSpots.add(Util.locToString(p.getLocation()));
-                p.sendMessage("§8[unrRifts] §aExfil spot added. Total: §e" + s.exfilSpots.size());
-                return true;
-            }
-
-            case "unrevent" -> {
-                if (s == null) {
-                    p.sendMessage("§8[unrRifts] §cNo active build session. Use /unrmapstartbuild first.");
-                    return true;
-                }
-                if (args.length < 1) {
-                    p.sendMessage("§8[unrRifts] §7Usage: §e/unrevent <name>");
-                    return true;
-                }
-                String evName = args[0].trim();
-                if (evName.isBlank()) {
-                    p.sendMessage("§8[unrRifts] §cInvalid event name.");
-                    return true;
-                }
-                s.events.put(evName, Util.locToString(p.getLocation()));
-                p.sendMessage("§8[unrRifts] §aEvent trigger saved: §e" + evName);
-                return true;
-            }
+        // store spawns
+        for (var e : s.playerSpawns.entrySet()){
+            reg.setSpawn(name, e.getKey(), e.getValue());
+        }
+        // boss/exfil
+        if (s.bossId != null && s.bossLoc != null) { reg.setBoss(name, s.bossLoc); reg.setBoss(name, s.bossId, s.bossLoc); }
+        if (!s.exfils.isEmpty()) { reg.setExfil(name, s.exfils.get(0)); reg.setExfils(name, new ArrayList<>(s.exfils)); }
+        for (var e : s.events.entrySet()){
+            reg.setEvent(name, e.getKey(), e.getValue());
         }
 
-        return false;
+        // store mob/loot lists
+        List<Map<String,Object>> mobList = new ArrayList<>();
+        for (var ms : s.mobSpawns){
+            Map<String,Object> m = new LinkedHashMap<>();
+            m.put("type", ms.entityType());
+            m.put("level", ms.level());
+            m.put("noBlockBreak", ms.noBlockBreak());
+            m.put("loc", ms.loc());
+            mobList.add(m);
+        }
+        reg.setMobSpawns(name, mobList);
+
+        List<Map<String,Object>> lootList = new ArrayList<>();
+        for (var ls : s.lootSpawns){
+            Map<String,Object> m = new LinkedHashMap<>();
+            m.put("tier", ls.tier());
+            m.put("loc", ls.loc());
+            lootList.add(m);
+        }
+        reg.setLootSpawns(name, lootList);
+
+        // boundary: if none recorded, scan around player for redstone blocks in radius
+        List<MapBuildSession.BlockPos> pts = new ArrayList<>(s.boundary);
+        if (pts.isEmpty()){
+            pts.addAll(scanRedstoneBorder(p.getWorld(), p.getLocation(), cfg.getInt("maps.manual.borderScanRadius", 128)));
+        }
+        if (pts.size() < 4){
+            p.sendMessage("§cNo border blocks recorded/found. Place REDSTONE_BLOCKs while building (or near you).");
+            builds.stop(p);
+            return true;
+        }
+
+        // order points by angle around centroid (stable ring)
+        double cx = pts.stream().mapToDouble(MapBuildSession.BlockPos::x).average().orElse(0);
+        double cz = pts.stream().mapToDouble(MapBuildSession.BlockPos::z).average().orElse(0);
+        pts.sort(Comparator.comparingDouble(a -> Math.atan2(a.z()-cz, a.x()-cx)));
+
+        // save boundary as strings
+        List<String> boundStr = pts.stream().map(b -> b.x()+","+b.y()+","+b.z()).collect(Collectors.toList());
+        reg.setBoundary(name, boundStr);
+
+        // build barrier wall connected point-to-point, full height
+        int minY = p.getWorld().getMinHeight();
+        int maxY = p.getWorld().getMaxHeight()-1;
+        int placed = buildBarrierWall(p.getWorld(), pts, minY, maxY);
+        p.sendMessage("§aFinalized map §f"+name+"§a. Barrier blocks placed: §f"+placed+"§a.");
+        builds.stop(p);
+        return true;
     }
 
-    @Override
-    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        String cmd = command.getName().toLowerCase(Locale.ROOT);
-
-        if (cmd.equals("unrsharedworld")) {
-            if (args.length == 1) return Arrays.asList("set");
-            if (args.length == 2) {
-                return Bukkit.getWorlds().stream().map(w -> w.getName()).toList();
-            }
-            return Collections.emptyList();
-        }
-
-        if (cmd.equals("unrmapimportworld")) {
-            if (args.length == 1) return Collections.emptyList();
-            if (args.length == 2) return Bukkit.getWorlds().stream().map(w -> w.getName()).toList();
-            if (args.length == 3) return Arrays.asList("pve", "pvp");
-            if (args.length == 4 || args.length == 5) return Arrays.asList("1","2","3","4","5","6");
-            if (args.length == 6) return Arrays.asList("true","false");
-            return Collections.emptyList();
-        }
-
-        if (cmd.equals("unrmapstartbuild")) {
-            if (args.length == 1) return Arrays.asList("pve", "pvp");
-            if (args.length == 2) return Arrays.asList("true", "false");
-            return Collections.emptyList();
-        }
-
-        if (cmd.equals("unrmapsetbreak")) {
-            if (args.length == 1) return Arrays.asList("true", "false");
-            return Collections.emptyList();
-        }
-
-        if (cmd.equals("unrmspawn")) {
-            if (args.length == 1) {
-                return Arrays.asList("ZOMBIE", "SKELETON", "SPIDER", "CREEPER", "HUSK", "DROWNED", "PILLAGER");
-            }
-            if (args.length >= 2) {
-                return Arrays.asList("1", "2", "3", "5", "10", "--no_block_break");
+    private List<MapBuildSession.BlockPos> scanRedstoneBorder(World w, Location center, int radius){
+        int cx = center.getBlockX();
+        int cy = center.getBlockY();
+        int cz = center.getBlockZ();
+        int r2 = radius*radius;
+        List<MapBuildSession.BlockPos> out = new ArrayList<>();
+        int minX = cx-radius, maxX = cx+radius;
+        int minY = w.getMinHeight(), maxY = w.getMaxHeight()-1;
+        int minZ = cz-radius, maxZ = cz+radius;
+        // Scan only a thin band around player's Y +- 8 for speed
+        int y0 = Math.max(minY, cy-8);
+        int y1 = Math.min(maxY, cy+8);
+        for (int x=minX;x<=maxX;x++){
+            for (int z=minZ;z<=maxZ;z++){
+                int dx=x-cx, dz=z-cz;
+                if (dx*dx+dz*dz>r2) continue;
+                for (int y=y0;y<=y1;y++){
+                    if (w.getBlockAt(x,y,z).getType()==Material.REDSTONE_BLOCK){
+                        out.add(new MapBuildSession.BlockPos(x,y,z));
+                    }
+                }
             }
         }
+        return out;
+    }
 
-        if (cmd.equals("unrbspawn")) {
-            if (args.length == 1) {
-                return Arrays.asList("rift_boss", "warden", "custom");
-            }
+    private int buildBarrierWall(World w, List<MapBuildSession.BlockPos> pts, int minY, int maxY){
+        int placed = 0;
+        for (int i=0;i<pts.size();i++){
+            MapBuildSession.BlockPos a = pts.get(i);
+            MapBuildSession.BlockPos b = pts.get((i+1)%pts.size());
+            placed += drawSegment(w, a.x(), a.z(), b.x(), b.z(), minY, maxY);
         }
+        return placed;
+    }
 
-        return Collections.emptyList();
+    private int drawSegment(World w, int x0, int z0, int x1, int z1, int minY, int maxY){
+        int placed = 0;
+        int dx = Math.abs(x1 - x0);
+        int dz = Math.abs(z1 - z0);
+        int sx = x0 < x1 ? 1 : -1;
+        int sz = z0 < z1 ? 1 : -1;
+        int err = dx - dz;
+        int x = x0;
+        int z = z0;
+        while (true){
+            for (int y=minY;y<=maxY;y++){
+                Block b = w.getBlockAt(x,y,z);
+                if (b.getType() != Material.BARRIER){
+                    b.setType(Material.BARRIER, false);
+                    placed++;
+                }
+            }
+            if (x == x1 && z == z1) break;
+            int e2 = 2*err;
+            if (e2 > -dz){ err -= dz; x += sx; }
+            if (e2 < dx){ err += dx; z += sz; }
+        }
+        return placed;
     }
 }

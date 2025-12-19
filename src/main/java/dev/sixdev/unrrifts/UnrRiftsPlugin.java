@@ -17,6 +17,7 @@ public class UnrRiftsPlugin extends JavaPlugin {
     private LobbyGroupManager lobbyGroupManager;
     private RunManager runManager;
     private GuiListener guiListener;
+
     private MapBuildManager mapBuildManager;
 
     public static UnrRiftsPlugin get() { return instance; }
@@ -32,7 +33,8 @@ public class UnrRiftsPlugin extends JavaPlugin {
         this.runManager = new RunManager(this, configService, leaderboardService);
         this.lobbyGroupManager = new LobbyGroupManager(this, configService, runManager);
         this.guiListener = new GuiListener(this, configService, lobbyGroupManager);
-        this.mapBuildManager = new MapBuildManager(this);
+
+        this.mapBuildManager = new MapBuildManager();
 
         // PlaceholderAPI hook (softdepend)
         if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
@@ -53,25 +55,21 @@ public class UnrRiftsPlugin extends JavaPlugin {
             unrrifts.setTabCompleter(cmd);
         }
 
-        // manual map build commands (drop-in)
-        var buildCmd = new MapBuildCommands(mapBuildManager);
-        registerCmd("unrmapstartbuild", buildCmd);
-        registerCmd("unrmapfinalize", buildCmd);
-        registerCmd("unrpspawn", buildCmd);
-        registerCmd("unrmspawn", buildCmd);
-        registerCmd("unrbspawn", buildCmd);
-        registerCmd("unrlspawn", buildCmd);
-        registerCmd("unrexfil", buildCmd);
-        registerCmd("unrevent", buildCmd);
-        registerCmd("unrmapsetbreak", buildCmd);
-        registerCmd("unrsharedworld", buildCmd);
-        registerCmd("unrmapimportworld", buildCmd);
+        
+
+// manual map build commands
+String[] buildCmds = new String[]{"unrmapstartbuild","unrmapfinalize","unrmapsetbreak","unrpspawn","unrmspawn","unrlspawn","unrbspawn","unrexfil","unrevent"};
+MapBuildCommands mbc = new MapBuildCommands(this, configService, mapBuildManager);
+for (String c : buildCmds){
+    var pc = getCommand(c);
+    if (pc != null) pc.setExecutor(mbc);
+}
+
 
         // listeners
         Bukkit.getPluginManager().registerEvents(guiListener, this);
-        Bukkit.getPluginManager().registerEvents(new RuntimeListener(this, configService, lobbyGroupManager, runManager), this);
         Bukkit.getPluginManager().registerEvents(new MapBuildListener(mapBuildManager), this);
-        Bukkit.getPluginManager().registerEvents(new MapRegionProtectionListener(mapBuildManager, runManager), this);
+        Bukkit.getPluginManager().registerEvents(new RuntimeListener(this, configService, lobbyGroupManager, runManager), this);
 
         getLogger().info("unrRifts enabled.");
     }
@@ -91,13 +89,4 @@ public class UnrRiftsPlugin extends JavaPlugin {
     public LeaderboardService leaderboard() { return leaderboardService; }
     public LobbyGroupManager groups() { return lobbyGroupManager; }
     public RunManager runs() { return runManager; }
-    public MapBuildManager mapBuild() { return mapBuildManager; }
-
-    private void registerCmd(String name, MapBuildCommands exec) {
-        var c = getCommand(name);
-        if (c != null) {
-            c.setExecutor(exec);
-            c.setTabCompleter(exec);
-        }
-    }
 }

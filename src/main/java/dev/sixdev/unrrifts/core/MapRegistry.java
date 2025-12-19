@@ -58,4 +58,62 @@ public class MapRegistry {
     public void setExfil(String name, String loc){ plugin.getConfig().set("maps.registry."+name+".exfil", loc); plugin.saveConfig(); }
     public void setSpawn(String name, int slot, String loc){ plugin.getConfig().set("maps.registry."+name+".spawns."+slot, loc); plugin.saveConfig(); }
 
+    /** Updates the template world for an existing registry entry. */
+    public void setTemplateWorld(String name, String templateWorld){
+        plugin.getConfig().set("maps.registry."+name+".templateWorld", templateWorld);
+        plugin.saveConfig();
+    }
+
+
+
+// --- Manual map fields (stored under maps.registry.<name>.manual.*) ---
+private String base(String name){ return "maps.registry."+name; }
+private String man(String name, String key){ return base(name)+".manual."+key; }
+
+public boolean manual(String name){ return plugin.getConfig().getBoolean(man(name,"enabled"), false); }
+public void setManual(String name, boolean enabled){ plugin.getConfig().set(man(name,"enabled"), enabled); plugin.saveConfig(); }
+
+public boolean allowBreak(String name){ return plugin.getConfig().getBoolean(man(name,"allowBreak"), true); }
+public void setAllowBreak(String name, boolean allow){ plugin.getConfig().set(man(name,"allowBreak"), allow); plugin.saveConfig(); }
+
+public String mode(String name){ return plugin.getConfig().getString(man(name,"mode"), "PVE"); }
+public void setMode(String name, String mode){ plugin.getConfig().set(man(name,"mode"), mode); plugin.saveConfig(); }
+
+public java.util.List<String> boundary(String name){ return plugin.getConfig().getStringList(man(name,"boundary")); }
+public void setBoundary(String name, java.util.List<String> list){ plugin.getConfig().set(man(name,"boundary"), list); plugin.saveConfig(); }
+
+public java.util.List<java.util.Map<?,?>> mobSpawns(String name){
+    return plugin.getConfig().getMapList(man(name,"mobSpawns"));
+}
+public void setMobSpawns(String name, java.util.List<java.util.Map<String,Object>> list){
+    plugin.getConfig().set(man(name,"mobSpawns"), list); plugin.saveConfig();
+}
+
+public java.util.List<java.util.Map<?,?>> lootSpawns(String name){
+    return plugin.getConfig().getMapList(man(name,"lootSpawns"));
+}
+public void setLootSpawns(String name, java.util.List<java.util.Map<String,Object>> list){
+    plugin.getConfig().set(man(name,"lootSpawns"), list); plugin.saveConfig();
+}
+
+public java.util.List<String> exfils(String name){ return plugin.getConfig().getStringList(man(name,"exfils")); }
+public void setExfils(String name, java.util.List<String> list){ plugin.getConfig().set(man(name,"exfils"), list); plugin.saveConfig(); }
+
+public java.util.Map<String,Object> events(String name){
+    java.util.Map<String,Object> m = plugin.getConfig().getConfigurationSection(man(name,"events")) == null ? new java.util.LinkedHashMap<>() :
+            plugin.getConfig().getConfigurationSection(man(name,"events")).getValues(false);
+    return m;
+}
+public void setEvent(String name, String eventName, String loc){
+    plugin.getConfig().set(man(name,"events."+eventName), loc); plugin.saveConfig();
+}
+
+public String bossId(String name){ return plugin.getConfig().getString(man(name,"boss.id"), ""); }
+public String bossLoc(String name){ return plugin.getConfig().getString(man(name,"boss.loc"), ""); }
+public void setBoss(String name, String bossId, String loc){
+    plugin.getConfig().set(man(name,"boss.id"), bossId);
+    plugin.getConfig().set(man(name,"boss.loc"), loc);
+    plugin.saveConfig();
+}
+
 }

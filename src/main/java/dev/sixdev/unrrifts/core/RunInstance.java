@@ -9,6 +9,8 @@ public class RunInstance {
     public final UUID id = UUID.randomUUID();
     public final LobbyGroup group;
     public final String worldName;
+    public String mapName = null;
+    public boolean manualMap = false;
     public final long startTimeMs = System.currentTimeMillis();
 
     public World world;
@@ -21,6 +23,8 @@ public class RunInstance {
     public final Set<UUID> alive = new HashSet<>();
 
     public boolean bossDefeated = false;
+
+    public String customBossId = null;
 
     public RunInstance(LobbyGroup group, String worldName){
         this.group = group;

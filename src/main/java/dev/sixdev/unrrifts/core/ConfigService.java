@@ -78,13 +78,6 @@ public class ConfigService {
         return new MapRegistry(plugin);
     }
 
-
-    /** Optional shared-world name where multiple maps are built as regions. */
-    public String sharedWorld() {
-        return plugin.getConfig().getString("maps.sharedWorld", "");
-    }
-
-
     public String leaderboardFile(){
         return plugin.getConfig().getString("leaderboard.file", "leaderboard.yml");
     }
@@ -100,4 +93,11 @@ public class ConfigService {
         plugin.getConfig().set("lobby.exit", locStr);
         plugin.saveConfig();
     }
+
+
+// generic access helpers
+public int getInt(String path, int def){ return plugin.getConfig().getInt(path, def); }
+public double getDouble(String path, double def){ return plugin.getConfig().getDouble(path, def); }
+public String getString(String path, String def){ return plugin.getConfig().getString(path, def); }
+
 }

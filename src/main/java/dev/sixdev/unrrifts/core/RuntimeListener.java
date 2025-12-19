@@ -10,6 +10,8 @@ import org.bukkit.event.*;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.*;
+import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.Objects;
@@ -111,4 +113,32 @@ public class RuntimeListener implements Listener {
         is.setAmount(is.getAmount()-1);
         e.setCancelled(true);
     }
+
+
+@EventHandler(ignoreCancelled = true)
+public void onBlockBreak(BlockBreakEvent e){
+    Player p = e.getPlayer();
+	    RunInstance run = runs.runOf(p);
+    if (run == null) return;
+    if (!run.manualMap) return;
+    MapRegistry reg = cfg.maps();
+    boolean allow = reg.allowBreak(run.mapName);
+    if (!allow && !p.hasPermission("unrrifts.admin")){
+        e.setCancelled(true);
+    }
+}
+
+@EventHandler(ignoreCancelled = true)
+public void onBlockPlace(BlockPlaceEvent e){
+    Player p = e.getPlayer();
+	    RunInstance run = runs.runOf(p);
+    if (run == null) return;
+    if (!run.manualMap) return;
+    MapRegistry reg = cfg.maps();
+    boolean allow = reg.allowBreak(run.mapName);
+    if (!allow && !p.hasPermission("unrrifts.admin")){
+        e.setCancelled(true);
+    }
+}
+
 }

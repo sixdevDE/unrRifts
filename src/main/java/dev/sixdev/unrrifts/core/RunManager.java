@@ -40,7 +40,13 @@ public class RunManager {
         return runs.get(w.getName());
     }
 
-    public void startRun(LobbyGroup group){
+    
+public RunInstance runOf(org.bukkit.entity.Player p){
+    if (p == null || p.getWorld() == null) return null;
+    return runs.get(p.getWorld().getName());
+}
+
+public void startRun(LobbyGroup group){
         // create run world
         String worldName = "unrrift_"+System.currentTimeMillis()+"_"+group.id().toString().substring(0,8);
         RunInstance run = new RunInstance(group, worldName);
@@ -127,6 +133,8 @@ public class RunManager {
             world.setPVP(run.group.key().mode == RunMode.PVP);
 
             run.world = world;
+            run.mapName = mapName;
+            run.manualMap = reg.manual(mapName);
             runs.put(world.getName(), run);
 
             // load locations
@@ -147,6 +155,7 @@ public class RunManager {
             }
 
             beginRunTeleportAndKits(run);
+            if (reg.manual(mapName)) spawnManualContent(run, reg, mapName);
             spawnBoss(run);
             startCompassTasks(run);
         } catch (Exception e){
@@ -392,19 +401,136 @@ public class RunManager {
         }
     }
 
-    private void spawnBoss(RunInstance run){
+    
+	private static String mapGetStr(java.util.Map<?,?> m, String key, String def){
+	    Object v = m.get(key);
+	    return v == null ? def : String.valueOf(v);
+	}
+	private static int mapGetInt(java.util.Map<?,?> m, String key, int def){
+	    Object v = m.get(key);
+	    if (v == null) return def;
+	    try { return Integer.parseInt(String.valueOf(v)); } catch (Exception ignored){ return def; }
+	}
+
+	private void spawnManualContent(RunInstance run, MapRegistry reg, String mapName){
+    try {
+        // Loot spawns
+        for (var o : reg.lootSpawns(mapName)){
+            if (!(o instanceof java.util.Map<?,?> m)) continue;
+	            String tier = mapGetStr(m, "tier", "T1");
+	            String locS = mapGetStr(m, "loc", "");
+            org.bukkit.Location l = Util.stringToLoc(locS);
+            if (l == null) continue;
+            l.setWorld(run.world);
+
+            org.bukkit.block.Block b = run.world.getBlockAt(l);
+            b.setType(org.bukkit.Material.CHEST, false);
+            org.bukkit.block.BlockState st = b.getState();
+            if (st instanceof org.bukkit.block.Chest chest){
+                fillChest(chest.getBlockInventory(), tier);
+            }
+        }
+
+        // Mob spawns
+        for (var o : reg.mobSpawns(mapName)){
+            if (!(o instanceof java.util.Map<?,?> m)) continue;
+	            String typeS = mapGetStr(m, "type", "ZOMBIE");
+	            int level = mapGetInt(m, "level", 1);
+	            String locS = mapGetStr(m, "loc", "");
+            org.bukkit.Location l = Util.stringToLoc(locS);
+            if (l == null) continue;
+            l.setWorld(run.world);
+
+            org.bukkit.entity.EntityType type;
+            try { type = org.bukkit.entity.EntityType.valueOf(Util.upper(typeS)); }
+            catch (Exception ex){ type = org.bukkit.entity.EntityType.ZOMBIE; }
+
+            org.bukkit.entity.Entity e = run.world.spawnEntity(l, type);
+            e.setPersistent(true);
+            // simple "level" => extra health if living
+            if (e instanceof org.bukkit.entity.LivingEntity le){
+                double base = le.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH) != null ?
+                        le.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).getBaseValue() : 20.0;
+                double hp = Math.min(200.0, base + (level-1)*5.0);
+                if (le.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH) != null){
+                    le.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).setBaseValue(hp);
+                }
+                le.setHealth(Math.min(hp, le.getHealth()));
+            }
+        }
+
+        // Exfil override (use first)
+        java.util.List<String> ex = reg.exfils(mapName);
+        if (ex != null && !ex.isEmpty()){
+            org.bukkit.Location l = Util.stringToLoc(ex.get(0));
+            if (l != null){
+                l.setWorld(run.world);
+                run.exfil = l;
+            }
+        }
+
+        // Boss override via manual boss loc (already loaded), bossId currently only affects name if configured
+        String bossId = reg.bossId(mapName);
+        if (bossId != null && !bossId.isBlank()){
+            run.customBossId = bossId;
+        }
+    } catch (Exception ex){
+        plugin.getLogger().warning("Manual content spawn failed: "+ex.getMessage());
+    }
+}
+
+private void fillChest(org.bukkit.inventory.Inventory inv, String tier){
+    try {
+        LootConfig lc = cfg.loot();
+        java.util.List<LootConfig.Tier> tiers = lc.tiers();
+        LootConfig.Tier chosen = null;
+        for (LootConfig.Tier t : tiers){
+            if (t.id().equalsIgnoreCase(tier)){
+                chosen = t; break;
+            }
+        }
+        if (chosen == null && !tiers.isEmpty()) chosen = tiers.get(0);
+        if (chosen == null) return;
+
+        java.util.Random rnd = new java.util.Random();
+        int rolls = Math.max(1, cfg.getInt("loot.manual.rollsPerChest", 4));
+        for (int i=0;i<rolls;i++){
+            String itemS = chosen.items().get(rnd.nextInt(chosen.items().size()));
+            org.bukkit.inventory.ItemStack it = ItemParser.parse(itemS);
+            if (it == null) continue;
+            inv.addItem(it);
+        }
+    } catch (Exception ignored){}
+}
+
+private void spawnBoss(RunInstance run){
         if (run.bossRoom == null) return;
 
-        EntityType type = cfg.bossType();
-        LivingEntity boss = (LivingEntity) run.world.spawnEntity(run.bossRoom, type);
-        boss.setCustomName("§c"+cfg.bossName());
+        String bossId = run.customBossId;
+EntityType type = cfg.bossType();
+String name = cfg.bossName();
+double health = cfg.bossHealth();
+if (bossId != null && !bossId.isBlank()){
+    String path = "bosses."+bossId+".";
+    String t = plugin.getConfig().getString(path+"type", "");
+    if (t != null && !t.isBlank()){
+        try { type = EntityType.valueOf(Util.upper(t)); } catch (Exception ignored) {}
+    }
+    String n = plugin.getConfig().getString(path+"name", "");
+    if (n != null && !n.isBlank()) name = n;
+    health = plugin.getConfig().getDouble(path+"health", health);
+}
+
+LivingEntity boss = (LivingEntity) run.world.spawnEntity(run.bossRoom, type);
+boss.setCustomName("§c"+name);
+
         boss.setCustomNameVisible(true);
-        boss.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).setBaseValue(cfg.bossHealth());
-        boss.setHealth(cfg.bossHealth());
+        boss.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).setBaseValue(health);
+        boss.setHealth(health);
         boss.setPersistent(true);
         boss.setRemoveWhenFarAway(false);
 
-        BossBar bar = Bukkit.createBossBar("§c"+cfg.bossName(), BarColor.PURPLE, BarStyle.SEGMENTED_20);
+        BossBar bar = Bukkit.createBossBar("§c"+name, BarColor.PURPLE, BarStyle.SEGMENTED_20);
         bar.setVisible(true);
         bossBars.put(run.worldName, bar);
 

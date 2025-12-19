@@ -5,35 +5,27 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.entity.Player;
 
-/**
- * While an admin is in a build session, redstone blocks placed/removed are treated as map boundary markers.
- */
-public final class MapBuildListener implements Listener {
-
-    private final MapBuildManager build;
-
-    public MapBuildListener(MapBuildManager build) {
-        this.build = build;
-    }
+public class MapBuildListener implements Listener {
+    private final MapBuildManager builds;
+    public MapBuildListener(MapBuildManager builds){ this.builds = builds; }
 
     @EventHandler(ignoreCancelled = true)
-    public void onPlace(BlockPlaceEvent e) {
-        var s = build.session(e.getPlayer().getUniqueId());
-        if (s == null) return;
+    public void onPlace(BlockPlaceEvent e){
         if (e.getBlockPlaced().getType() != Material.REDSTONE_BLOCK) return;
-        s.addBoundary(e.getBlockPlaced().getLocation());
-        e.getPlayer().sendMessage("§8[unrRifts] §7Boundary marker added (§cREDSTONE_BLOCK§7). Total: §e" + s.boundary.size());
+        Player p = e.getPlayer();
+        MapBuildSession s = builds.get(p);
+        if (s == null) return;
+        s.addBoundary(e.getBlockPlaced());
     }
 
     @EventHandler(ignoreCancelled = true)
-    public void onBreak(BlockBreakEvent e) {
-        var s = build.session(e.getPlayer().getUniqueId());
-        if (s == null) return;
+    public void onBreak(BlockBreakEvent e){
         if (e.getBlock().getType() != Material.REDSTONE_BLOCK) return;
-        String key = e.getBlock().getX() + "," + e.getBlock().getY() + "," + e.getBlock().getZ();
-        if (s.boundary.remove(key)) {
-            e.getPlayer().sendMessage("§8[unrRifts] §7Boundary marker removed. Total: §e" + s.boundary.size());
-        }
+        Player p = e.getPlayer();
+        MapBuildSession s = builds.get(p);
+        if (s == null) return;
+        s.removeBoundary(e.getBlock());
     }
 }
