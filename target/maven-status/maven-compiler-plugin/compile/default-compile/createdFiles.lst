@@ -9,9 +9,11 @@ dev\sixdev\unrrifts\core\ManualMapData$LootSpawn.class
 dev\sixdev\unrrifts\cmd\UnrRiftsCommand.class
 dev\sixdev\unrrifts\cmd\RiftCommand.class
 dev\sixdev\unrrifts\core\LobbyGroupManager.class
+dev\sixdev\unrrifts\core\Util.class
 dev\sixdev\unrrifts\core\RunMode.class
 dev\sixdev\unrrifts\core\KitDefinition.class
 dev\sixdev\unrrifts\core\MapBuildSession.class
+dev\sixdev\unrrifts\core\MapRegionProtectionListener.class
 dev\sixdev\unrrifts\core\GeneratedWorldBuilder$1.class
 dev\sixdev\unrrifts\gui\GuiSession.class
 dev\sixdev\unrrifts\core\RunManager$2.class
@@ -19,11 +21,13 @@ dev\sixdev\unrrifts\core\FileUtil.class
 dev\sixdev\unrrifts\core\ItemParser.class
 dev\sixdev\unrrifts\core\MapBuildManager.class
 dev\sixdev\unrrifts\core\MapRegistry.class
+dev\sixdev\unrrifts\core\UnrRiftsPlaceholders.class
 dev\sixdev\unrrifts\core\LobbyGroup.class
 dev\sixdev\unrrifts\cmd\MapBuildCommands.class
 dev\sixdev\unrrifts\core\ManualMapStore.class
 dev\sixdev\unrrifts\core\MapBuildSession$BlockPos.class
 dev\sixdev\unrrifts\core\ManualMapData.class
+dev\sixdev\unrrifts\core\RuntimeListener.class
 dev\sixdev\unrrifts\core\LootConfig$Tier.class
 dev\sixdev\unrrifts\core\MapChoiceType.class
 dev\sixdev\unrrifts\core\ConfigService.class

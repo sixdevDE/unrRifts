@@ -1,13 +1,21 @@
 package dev.sixdev.unrrifts.core;
 
-import org.bukkit.Location;
-
 import java.util.*;
 
+/**
+ * Build session while an admin is defining a manual map.
+ * This class is intentionally lightweight: it only tracks markers and boundary points.
+ */
 public class MapBuildSession {
     public final UUID builder;
     public final String mapName;
+
+    /** Back-compat name used in older code. */
     public final String worldName;
+
+    /** Field expected by MapRegionProtectionListener. */
+    public final String world;
+
     public final RunMode mode;
     public boolean allowBreak;
 
@@ -17,15 +25,16 @@ public class MapBuildSession {
     public final Map<Integer, String> playerSpawns = new LinkedHashMap<>();
     public final List<MobSpawn> mobSpawns = new ArrayList<>();
     public final List<LootSpawn> lootSpawns = new ArrayList<>();
+    public String bossId;
+    public String bossLoc;
     public final List<String> exfils = new ArrayList<>();
     public final Map<String, String> events = new LinkedHashMap<>();
-    public String bossId = null;
-    public String bossLoc = null;
 
-    public MapBuildSession(UUID builder, String mapName, String worldName, RunMode mode, boolean allowBreak){
+    public MapBuildSession(UUID builder, String mapName, String worldName, RunMode mode, boolean allowBreak) {
         this.builder = builder;
         this.mapName = mapName;
         this.worldName = worldName;
+        this.world = worldName;
         this.mode = mode;
         this.allowBreak = allowBreak;
     }
