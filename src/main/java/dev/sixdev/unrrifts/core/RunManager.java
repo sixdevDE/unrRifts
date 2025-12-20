@@ -7,7 +7,6 @@ import org.bukkit.boss.BarStyle;
 import org.bukkit.boss.BossBar;
 import org.bukkit.entity.*;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.io.File;
@@ -40,7 +39,7 @@ public class RunManager {
         return runs.get(w.getName());
     }
 
-    public RunInstance runOf(org.bukkit.entity.Player p){
+    public RunInstance runOf(Player p){
         if (p == null || p.getWorld() == null) return null;
         return runs.get(p.getWorld().getName());
     }
@@ -52,8 +51,8 @@ public class RunManager {
 
         // not in a run -> just teleport to exit/lobby
         if (run == null){
-            org.bukkit.Location exit = Util.stringToLoc(cfg.lobbyExitStr());
-            org.bukkit.Location lobby = Util.stringToLoc(cfg.lobbySpawnStr());
+            Location exit = Util.stringToLoc(cfg.lobbyExitStr());
+            Location lobby = Util.stringToLoc(cfg.lobbySpawnStr());
             if (exit != null) p.teleport(exit);
             else if (lobby != null) p.teleport(lobby);
             p.sendMessage("§5[unrRifts] §7Left.");
@@ -71,12 +70,9 @@ public class RunManager {
         // IMPORTANT: group stores UUIDs -> remove UUID from group.players()
         try { run.group.players().remove(id); } catch (Exception ignored) {}
 
-        // optional cleanup if exists (avoid compile errors by catching Throwable)
-        try { run.group.kitSelected().remove(id); } catch (Throwable ignored) {}
-
         // teleport out
-        org.bukkit.Location exit = Util.stringToLoc(cfg.lobbyExitStr());
-        org.bukkit.Location lobby = Util.stringToLoc(cfg.lobbySpawnStr());
+        Location exit = Util.stringToLoc(cfg.lobbyExitStr());
+        Location lobby = Util.stringToLoc(cfg.lobbySpawnStr());
         if (exit != null) p.teleport(exit);
         else if (lobby != null) p.teleport(lobby);
 
@@ -123,7 +119,7 @@ public class RunManager {
         run.world = world;
         runs.put(world.getName(), run);
 
-        // build structures async-ish then teleport
+        // build structures then teleport
         Bukkit.getScheduler().runTask(plugin, () -> {
             GeneratedWorldBuilder builder = new GeneratedWorldBuilder(plugin, cfg);
             builder.build(run, type);
@@ -468,12 +464,12 @@ public class RunManager {
                 if (!(o instanceof java.util.Map<?,?> m)) continue;
                 String tier = mapGetStr(m, "tier", "T1");
                 String locS = mapGetStr(m, "loc", "");
-                org.bukkit.Location l = Util.stringToLoc(locS);
+                Location l = Util.stringToLoc(locS);
                 if (l == null) continue;
                 l.setWorld(run.world);
 
                 org.bukkit.block.Block b = run.world.getBlockAt(l);
-                b.setType(org.bukkit.Material.CHEST, false);
+                b.setType(Material.CHEST, false);
                 // set chest facing based on saved yaw at marker placement
                 try {
                     org.bukkit.block.data.BlockData bd = b.getBlockData();
@@ -494,25 +490,25 @@ public class RunManager {
                 String typeS = mapGetStr(m, "type", "ZOMBIE");
                 int level = mapGetInt(m, "level", 1);
                 String locS = mapGetStr(m, "loc", "");
-                org.bukkit.Location l = Util.stringToLoc(locS);
+                Location l = Util.stringToLoc(locS);
                 if (l == null) continue;
                 l.setWorld(run.world);
 
-                org.bukkit.entity.EntityType type;
-                try { type = org.bukkit.entity.EntityType.valueOf(Util.upper(typeS)); }
-                catch (Exception ex){ type = org.bukkit.entity.EntityType.ZOMBIE; }
+                EntityType type;
+                try { type = EntityType.valueOf(Util.upper(typeS)); }
+                catch (Exception ex){ type = EntityType.ZOMBIE; }
 
-                org.bukkit.entity.Entity e = run.world.spawnEntity(l, type);
+                Entity e = run.world.spawnEntity(l, type);
                 e.setPersistent(true);
                 // keep mobs dormant until a player comes close
-                if (e instanceof org.bukkit.entity.Mob mob){
+                if (e instanceof Mob mob){
                     try { mob.setAI(false); } catch (Exception ignored) {}
                     try { mob.setAware(false); } catch (Exception ignored) {}
                     try { mob.setSilent(true); } catch (Exception ignored) {}
                     run.dormantMobs.add(mob.getUniqueId());
                 }
                 // simple "level" => extra health if living
-                if (e instanceof org.bukkit.entity.LivingEntity le){
+                if (e instanceof LivingEntity le){
                     double base = le.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH) != null ?
                             le.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).getBaseValue() : 20.0;
                     double hp = Math.min(200.0, base + (level-1)*5.0);
@@ -524,16 +520,15 @@ public class RunManager {
             }
 
             // Exfil override (use first)
-            java.util.List<String> ex = reg.exfils(mapName);
+            List<String> ex = reg.exfils(mapName);
             if (ex != null && !ex.isEmpty()){
-                org.bukkit.Location l = Util.stringToLoc(ex.get(0));
+                Location l = Util.stringToLoc(ex.get(0));
                 if (l != null){
                     l.setWorld(run.world);
                     run.exfil = l;
                 }
             }
 
-            // Boss override via manual boss loc (already loaded), bossId currently only affects name if configured
             String bossId = reg.bossId(mapName);
             if (bossId != null && !bossId.isBlank()){
                 run.customBossId = bossId;
@@ -544,10 +539,8 @@ public class RunManager {
     }
 
     private org.bukkit.block.BlockFace yawToFace(float yaw){
-        // normalize to 0..360
         float y = yaw % 360f;
         if (y < 0) y += 360f;
-        // Minecraft yaw: 0 = South, 90 = West, 180 = North, 270 = East
         if (y >= 45f && y < 135f) return org.bukkit.block.BlockFace.WEST;
         if (y >= 135f && y < 225f) return org.bukkit.block.BlockFace.NORTH;
         if (y >= 225f && y < 315f) return org.bukkit.block.BlockFace.EAST;
@@ -557,16 +550,16 @@ public class RunManager {
     private void startDormantWakeTask(RunInstance run){
         if (run == null || run.world == null) return;
         if (run.dormantWakeTask != null) return;
-        run.dormantWakeTask = org.bukkit.Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+        run.dormantWakeTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             try {
                 if (run.world == null) return;
                 if (run.dormantMobs.isEmpty()) return;
 
-                java.util.Iterator<java.util.UUID> it = run.dormantMobs.iterator();
+                Iterator<UUID> it = run.dormantMobs.iterator();
                 while (it.hasNext()){
-                    java.util.UUID id = it.next();
-                    org.bukkit.entity.Entity e = run.world.getEntity(id);
-                    if (!(e instanceof org.bukkit.entity.Mob mob)){
+                    UUID id = it.next();
+                    Entity e = run.world.getEntity(id);
+                    if (!(e instanceof Mob mob)){
                         it.remove();
                         continue;
                     }
@@ -575,11 +568,10 @@ public class RunManager {
                         continue;
                     }
 
-                    // wake if any alive player is within 10 blocks
                     boolean shouldWake = false;
-                    org.bukkit.Location ml = mob.getLocation();
-                    for (java.util.UUID pu : new java.util.HashSet<>(run.alive)){
-                        org.bukkit.entity.Player p = org.bukkit.Bukkit.getPlayer(pu);
+                    Location ml = mob.getLocation();
+                    for (UUID pu : new HashSet<>(run.alive)){
+                        Player p = Bukkit.getPlayer(pu);
                         if (p == null) continue;
                         if (p.getWorld() != run.world) continue;
                         if (p.getLocation().distanceSquared(ml) <= (10.0 * 10.0)){
@@ -595,7 +587,6 @@ public class RunManager {
                     }
                 }
 
-                // stop task once everything is awake
                 if (run.dormantMobs.isEmpty() && run.dormantWakeTask != null){
                     run.dormantWakeTask.cancel();
                     run.dormantWakeTask = null;
@@ -607,7 +598,7 @@ public class RunManager {
     private void fillChest(org.bukkit.inventory.Inventory inv, String tier){
         try {
             LootConfig lc = cfg.loot();
-            java.util.List<LootConfig.Tier> tiers = lc.tiers();
+            List<LootConfig.Tier> tiers = lc.tiers();
             LootConfig.Tier chosen = null;
             for (LootConfig.Tier t : tiers){
                 if (t.id().equalsIgnoreCase(tier)){
@@ -617,11 +608,11 @@ public class RunManager {
             if (chosen == null && !tiers.isEmpty()) chosen = tiers.get(0);
             if (chosen == null) return;
 
-            java.util.Random rnd = new java.util.Random();
+            Random rnd = new Random();
             int rolls = Math.max(1, cfg.getInt("loot.manual.rollsPerChest", 4));
             for (int i=0;i<rolls;i++){
                 String itemS = chosen.items().get(rnd.nextInt(chosen.items().size()));
-                org.bukkit.inventory.ItemStack it = ItemParser.parse(itemS);
+                ItemStack it = ItemParser.parse(itemS);
                 if (it == null) continue;
                 inv.addItem(it);
             }
@@ -647,15 +638,15 @@ public class RunManager {
         }
 
         LivingEntity boss = (LivingEntity) run.world.spawnEntity(run.bossRoom, type);
-        // boss starts dormant (manual maps): wakes when a player gets within 10 blocks
-        if (run.manualMap && boss instanceof org.bukkit.entity.Mob mob){
+
+        if (run.manualMap && boss instanceof Mob mob){
             try { mob.setAI(false); } catch (Exception ignored) {}
             try { mob.setAware(false); } catch (Exception ignored) {}
             try { mob.setSilent(true); } catch (Exception ignored) {}
             run.dormantMobs.add(mob.getUniqueId());
         }
-        boss.setCustomName("§c"+name);
 
+        boss.setCustomName("§c"+name);
         boss.setCustomNameVisible(true);
         boss.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).setBaseValue(health);
         boss.setHealth(health);
@@ -674,9 +665,11 @@ public class RunManager {
                     r.bossDefeated = true;
                     bar.setProgress(0.0);
                     bar.setTitle("§aBoss defeated!");
-                    Bukkit.getScheduler().runTaskLater(plugin, () -> { bar.removeAll(); bossBars.remove(run.worldName); }, 20L * 8);
+                    Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                        bar.removeAll();
+                        bossBars.remove(run.worldName);
+                    }, 20L * 8);
 
-                    // give exfil token to alive players
                     if (cfg.bossDropsToken()){
                         for (UUID u : new HashSet<>(r.alive)){
                             Player p = Bukkit.getPlayer(u);
@@ -694,7 +687,6 @@ public class RunManager {
             double prog = Math.max(0.0, Math.min(1.0, cur / max));
             bar.setProgress(prog);
 
-            // show bar to players in run world
             for (UUID u : r.group.players()){
                 Player p = Bukkit.getPlayer(u);
                 if (p != null && p.getWorld().getName().equals(r.worldName)) bar.addPlayer(p);
@@ -704,7 +696,6 @@ public class RunManager {
     }
 
     private void startCompassTasks(RunInstance run){
-        // exfil marker: set compass target
         Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             RunInstance r = runs.get(run.worldName);
             if (r == null) return;
@@ -714,7 +705,6 @@ public class RunManager {
                 if (p == null) continue;
                 if (!p.getWorld().getName().equals(r.worldName)) continue;
                 p.setCompassTarget(r.exfil);
-                // auto toggle info after boss
                 if (r.bossDefeated){
                     p.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
                             new net.md_5.bungee.api.chat.TextComponent("§aEXFIL UNLOCKED §7→ Follow your compass"));
